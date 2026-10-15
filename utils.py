@@ -1,11 +1,11 @@
 # imports
 import re
 
-# 1. actual_lyrics
+# 1. contains_lyrics
 
-def actual_lyrics(text):
+def contains_lyrics(text):
     '''
-    Checks if the text string appears be actual lyrics or not.
+    Checks if the text string contains at least one common lyric-related keyword.
 
     Parameters
     ----------
@@ -15,7 +15,7 @@ def actual_lyrics(text):
     Returns
     ----------
     bool
-        True if at least one of the characters is within the ranges, False otherwise.
+        True if at least one keyword is found, False otherwise.
     '''
     if not isinstance(text, str): # this is an insurance check that checks if text is of string-type
         return False
@@ -118,7 +118,6 @@ def contains_url(text):
 
 # 6. contains_newline
 
-
 def contains_newline(text):
     '''
     Checks if a text string contains at least one newline character.
@@ -138,3 +137,25 @@ def contains_newline(text):
 
     return '\n' in text
 
+# 7. contains_html
+
+def contains_html(text):
+    '''
+    Checks if the text string contains HTML tags.
+
+    Parameters
+    ----------
+    text : str
+        The text to inspect.
+
+    Returns
+    -------
+    bool
+        True if HTML tags are found, False otherwise.
+    '''
+    if not isinstance(text, str):
+        return False
+
+    regex = re.compile(r'<[^>]+>')
+
+    return bool(regex.search(text))
