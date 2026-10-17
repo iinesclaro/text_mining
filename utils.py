@@ -20,10 +20,59 @@ def contains_lyrics(text):
     if not isinstance(text, str): # this is an insurance check that checks if text is of string-type
         return False
 
-    regex = re.compile(r'\b(lyrics|song|music|verse|chorus)\b',flags = re.IGNORECASE)
+    pattern = re.compile(
+    r'(?:'
+    r'[\[(](?:'
+    r'intro|'
+    r'verse(?:\s+\d+)?|'
+    r'chorus|'
+    r'hook|'
+    r'pre-chorus|'
+    r'post-chorus|'
+    r'bridge|'
+    r'outro|'
+    r'breakdown|'
+    r'interlude|'
+    r'refrain'
+    r')(?:\s*:\s*[^)\]]*)?\s*[\])]'
+    r'|'
+    r'\b(?:verse(?:\s+\d+)?|chorus|hook|intro|outro|bridge)'
+    r'\s*:'
+    r')',
+    flags = re.IGNORECASE
+)
+
     # the IGNORECASE flags allows for uppercase and lowercase matches
 
-    return bool(regex.search(text))
+    return bool(pattern.search(text))
+
+# 2. contains_repeated_lines
+
+def contains_repeated_lines(text, min_line_length = 15, min_repetitions = 2):
+    if not isinstance(text, str):
+        return False
+
+    lines = [
+        re.sub(r'\s+', ' ', line.strip().lower())
+        for line in text.split("\n")
+    ]
+
+    lines = [
+        line for line in lines
+        if len(line) >= min_line_length
+    ]
+
+    for i in range(len(lines)):
+        count = 1
+
+        for j in range(i + 1, len(lines)):
+            if lines[i] == lines[j]:
+                count += 1
+
+                if count >= min_repetitions:
+                    return True
+
+    return False
 
 # 2. contains_emoji
 
