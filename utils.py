@@ -360,6 +360,14 @@ def get_wordnet_pos(tag):
     else:
         return wordnet.NOUN # default is noun
 
+def normalize_lyric_expressions(text):
+    
+    text = re.sub(r"\bgon\s+na\b", "gonna", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bwan\s+na\b", "wanna", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bgot\s+ta\b", "gotta", text, flags=re.IGNORECASE)
+
+    return text
+
 def clean_lyrics(text, 
                 keep_hashtags = True, 
                 keep_emojis = True, 
@@ -383,6 +391,7 @@ def clean_lyrics(text,
     
     text = text.replace("\u0435", "e")
     text = normalize_apostrophes(text)
+    text = normalize_lyric_expressions(text)
     text = remove_commercial_symbols(text)
     text = remove_urls(text)
     text = remove_handles(text)
@@ -409,8 +418,22 @@ def clean_lyrics(text,
     i = 0
 
     while i < len(tokens):
-        # join contractions such as I'm, you're, don't, and ain't
-        if i + 1 < len(tokens) and tokens[i + 1] in [
+
+        # Join split expressions: wanna, gonna, gotta
+        if i + 1 < len(tokens) and (
+            tokens[i].casefold(), tokens[i + 1].casefold()
+        ) in [
+            ("wan", "na"),
+            ("gon", "na"),
+            ("got", "ta")
+        ]:
+            corrected_tokens.append(
+                tokens[i].casefold() + tokens[i + 1].casefold()
+            )
+            i += 2
+
+        # Join contractions such as I'm, you're, don't, and ain't
+        elif i + 1 < len(tokens) and tokens[i + 1] in [
             "'m", "'s", "'re", "'ve", "'ll", "'d", "n't"
         ]:
             corrected_tokens.append(tokens[i] + tokens[i + 1])
@@ -429,6 +452,7 @@ def clean_lyrics(text,
             i += 1
 
     tokens = corrected_tokens
+
     if remove_stopwords:
         if keep_negations:
             tokens = [
