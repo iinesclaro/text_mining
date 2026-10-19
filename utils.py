@@ -277,11 +277,8 @@ def normalize_newlines(text):
 
 def normalize_apostrophes(text):
 
-    text = text.replace('’', "'")
-    text = text.replace('‘', "'")
-    text = text.replace('‛', "'")
-    text = text.replace('‚', "'")
-    text = text.replace('´', "'")
+    for apostrophe in ["’", "‘", "‛", "‚", "´", "`", "′", "ʼ"]:
+        text = text.replace(apostrophe, "'")
 
     return text
 
@@ -433,7 +430,7 @@ def clean_lyrics(text,
             i += 2
 
         # Join contractions such as I'm, you're, don't, and ain't
-        elif i + 1 < len(tokens) and tokens[i + 1] in [
+        elif i + 1 < len(tokens) and tokens[i + 1].lower() in [
             "'m", "'s", "'re", "'ve", "'ll", "'d", "n't"
         ]:
             corrected_tokens.append(tokens[i] + tokens[i + 1])
@@ -452,6 +449,12 @@ def clean_lyrics(text,
             i += 1
 
     tokens = corrected_tokens
+    tokens = [
+        token for token in tokens
+        if token.casefold().strip("'’‘‛‚´`′ʼ") not in {
+            's', 't', 'm', 're', 'll', 've', 'd', 'em', 'g'
+        }
+    ]
 
     if remove_stopwords:
         if keep_negations:
