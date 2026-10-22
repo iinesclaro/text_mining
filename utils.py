@@ -1,87 +1,118 @@
-# imports
+# IMPORTS
+
 import re
 import unicodedata
-import contractions
+
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk import pos_tag
 from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
+from nltk.stem import PorterStemmer
 from nltk.tokenize import PunktSentenceTokenizer
 
-# 1. contains_lyrics
+# INITIALIZATIONS
 
-def contains_lyrics(text):
-    '''
-    Checks if the text string contains at least one common lyric-related keyword.
+sentence_tokenizer = PunktSentenceTokenizer()
+lemmatizer = WordNetLemmatizer()
+stemmer = PorterStemmer()
 
-    Parameters
-    ----------
-    text: str
-        The text to inspect.
-    
-    Returns
-    ----------
-    bool
-        True if at least one keyword is found, False otherwise.
-    '''
-    if not isinstance(text, str): # this is an insurance check that checks if text is of string-type
-        return False
+# PATTERNS
 
-    pattern = re.compile(
-    r'(?:'
-    r'[\[(](?:'
-    r'intro|'
-    r'verse(?:\s+\d+)?|'
-    r'chorus|'
-    r'hook|'
-    r'pre-chorus|'
-    r'post-chorus|'
-    r'bridge|'
-    r'outro|'
-    r'breakdown|'
-    r'interlude|'
-    r'refrain'
-    r')(?:\s*:\s*[^)\]]*)?\s*[\])]'
-    r'|'
-    r'\b(?:verse(?:\s+\d+)?|chorus|hook|intro|outro|bridge)'
-    r'\s*:'
-    r')',
-    flags = re.IGNORECASE)
+emoji_pattern = (
+    r'[\U0001F300-\U0001FAFF'
+    r'\u2600-\u26FF'
+    r'\u2700-\u27BF'
+    r'\u2300-\u23FF'
+    r'\u2B00-\u2BFF'
+    r'\u203C\u2049'
+    r'\uFE0F]')
 
-    # the IGNORECASE flags allows for uppercase and lowercase matches
+handle_pattern = (r'(?<!\w)@[A-Za-z0-9_]+')
 
-    return bool(pattern.search(text))
+hashtag_pattern = (r'(?<!\w)#[A-Za-z0-9_]+')
 
-# 2. contains_repeated_lines
+url_pattern = (r'(?:https?://|www\.)\S+')
 
-def contains_repeated_lines(text, min_line_length = 15, min_repetitions = 2):
-    if not isinstance(text, str):
-        return False
+commercial_symbols_pattern = (r'[®™©℠℗]')
 
-    lines = [
-        re.sub(r'\s+', ' ', line.strip().lower())
-        for line in text.split("\n")
-    ]
+punctuation_pattern = (r'[!\"$%&()*+,./:;<=>?\[\\\]^_`{|}~\-]')
 
-    lines = [
-        line for line in lines
-        if len(line) >= min_line_length
-    ]
+# STOPWORDS
 
-    for i in range(len(lines)):
-        count = 1
+## APPROACH 1
+stop_words = set(stopwords.words('english'))
 
-        for j in range(i + 1, len(lines)):
-            if lines[i] == lines[j]:
-                count += 1
+## APPROACH 2
+pronouns = {
+    'i', 'me', 'my', 'myself',
+    'we', 'us', 'our', 'ours', 'ourselves',
+    'you', 'your', 'yours', 'yourself', 'yourselves',
+    'he', 'him', 'his', 'himself',
+    'she', 'her', 'hers', 'herself',
+    'they', 'them', 'their', 'theirs', 'themselves',
+    'it', 'its', 'itself'
+}
 
-                if count >= min_repetitions:
-                    return True
+negations = {
+    'no', 'nor', 'not',
+    'ain', 'aren', "aren't",
+    'couldn', "couldn't",
+    'didn', "didn't",
+    'doesn', "doesn't",
+    'don', "don't",
+    'hadn', "hadn't",
+    'hasn', "hasn't",
+    'haven', "haven't",
+    'isn', "isn't",
+    'mightn', "mightn't",
+    'mustn', "mustn't",
+    'needn', "needn't",
+    'shan', "shan't",
+    'shouldn', "shouldn't",
+    'wasn', "wasn't",
+    'weren', "weren't",
+    'won', "won't",
+    'wouldn', "wouldn't"
+}
 
-    return False
+auxiliary_verbs = {
+    'am', 'are', 'be', 'been', 'being',
+    'can', 'could',
+    'did', 'do', 'does', 'doing',
+    'had', 'has', 'have', 'having',
+    'is', 'was', 'were',
+    'will', 'would', 'should',
+    'might', 'must', 'need'
+}
 
-# 2. contains_emoji
+question_words = {
+    'how', 'what', 'when', 'where',
+    'which', 'who', 'whom', 'why'
+}
+
+other_words = {
+    'all', 'any', 'because', 'but',
+    'down', 'if', 'into', 'just',
+    'more', 'most', 'never', 'now',
+    'only', 'or', 'own', 'so',
+    'some', 'than', 'that', 'then',
+    'there', 'these', 'this', 'those',
+    'through', 'too', 'up', 'very',
+    'with'
+}
+
+words_to_keep = (
+    pronouns
+    | negations
+    | auxiliary_verbs
+    | question_words
+    | other_words
+)
+
+custom_stopwords = set(stopwords.words('english')) - words_to_keep
+
+# FUNCTIONS: CONTAINS
 
 def contains_emoji(text):
     '''
@@ -99,20 +130,9 @@ def contains_emoji(text):
     '''
     if not isinstance(text, str): 
         return False
-
-    emoji_pattern = (
-    r'[\U0001F300-\U0001FAFF'
-    r'\u2600-\u26FF'
-    r'\u2700-\u27BF'
-    r'\u2300-\u23FF'
-    r'\u2B00-\u2BFF'
-    r'\u203C\u2049'
-    r'\uFE0F]')
     
     return bool(re.search(emoji_pattern, text))
 
-
-# 3. contains_handle
 
 def contains_handle(text):
     '''
@@ -131,11 +151,10 @@ def contains_handle(text):
     if not isinstance(text, str):
             return False
     
-    return bool(re.search(r'(?<!\w)@[A-Za-z0-9_]+', text))
+    return bool(re.search(handle_pattern, text))
     # this regex pattern searches for @ that are not preceeded by words
     # example: matches @username but does not match 20241111@novaims.unl.pt, since there is a 1 before it
 
-# 4. contains_hastag
 
 def contains_hashtag(text):
     '''
@@ -154,11 +173,10 @@ def contains_hashtag(text):
     if not isinstance(text, str):
         return False
 
-    return bool(re.search(r'(?<!\w)#[A-Za-z0-9_]+', text))
+    return bool(re.search(hashtag_pattern, text))
     # this regex pattern searches for # that are not preceeded by words.
     # example: matches #textmining but does not match example#tag or text#mining@email.
 
-# 5. contains_url
 
 def contains_url(text):
     '''
@@ -177,11 +195,9 @@ def contains_url(text):
     if not isinstance(text, str):
         return False
 
-    return bool(re.search(r'(https?://|www\.)\S+', text, flags = re.IGNORECASE))
+    return bool(re.search(url_pattern, text, flags=re.IGNORECASE))
     # this pattern matches websites starting with http://, https://, or www. followed by a non-whitespace character.
     # example: matches http://example.org or https://example.pt but does not match google.com.
-
-# 6. contains_newline
 
 def contains_newline(text):
     '''
@@ -202,37 +218,23 @@ def contains_newline(text):
 
     return '\n' in text
 
-# 7. contains_html
-
-def contains_html(text):
-    '''
-    Checks if the text string contains HTML tags.
-
-    Parameters
-    ----------
-    text : str
-        The text to inspect.
-
-    Returns
-    -------
-    bool
-        True if HTML tags are found, False otherwise.
-    '''
+def contains_angle_bracket_markers(text):
     if not isinstance(text, str):
         return False
 
-    pattern = re.compile(r'<[^>]+>')
+    # repetition markers like <2x, <3x
+    if re.search(r'(?im)^\s*<\s*\d+\s*x\s*$', text):
+        return True
 
-    return bool(pattern.search(text))
+    # > or < at the start of a line
+    return bool(re.search(r'(?m)^\s*[<>]\s*', text))
 
 def contains_commercial_symbols(text):
     
     if not isinstance(text, str):
             return False
-
-    symbols = r'[®™©℠℗]'
     
-    return bool(re.search(symbols, text))
+    return bool(re.search(commercial_symbols_pattern, text))
 
 def contains_italics(text):
 
@@ -241,54 +243,41 @@ def contains_italics(text):
 
     return any('MATHEMATICAL' in unicodedata.name(char, '') and 'ITALIC' in unicodedata.name(char, '') for char in text)
 
-def remove_emojis(text):
+# FUNCTIONS: REMOVE
 
-    emoji_pattern = (
-    r'[\U0001F300-\U0001FAFF'
-    r'\u2600-\u26FF'
-    r'\u2700-\u27BF'
-    r'\u2300-\u23FF'
-    r'\u2B00-\u2BFF'
-    r'\u203C\u2049'
-    r'\uFE0F]')
-    
+def remove_emojis(text):
     return re.sub(emoji_pattern, "", text)
 
 def remove_handles(text):
-    return re.sub(r'(?<!\w)@[A-Za-z0-9_]+', "" , text)
+    return re.sub(handle_pattern, "" , text)
 
-def remove_hashtags(text):
-    return re.sub(r'(?<!\w)#[A-Za-z0-9_]+', "" ,text)
+def remove_hashtags(text, keep_words = True):
+    if keep_words:
+        return re.sub(r'(?<!\w)#(?=[A-Za-z0-9_])', '', text)
+    
+    return re.sub(hashtag_pattern, ' ', text)
 
 def remove_urls(text):
-    return re.sub(r'(https?://|www\.)\S+', " " , text, flags = re.IGNORECASE)
+    return re.sub(url_pattern, " " , text, flags = re.IGNORECASE)
 
-def remove_htmls(text):
-    return re.sub(r'<[^>]+>', "" , text)
+def remove_angle_bracket_markers(text):
+    if not isinstance(text, str):
+        return text
 
-def remove_commercial_symbols(text):
+    # removes repetition markers like <2x, <3x
+    text = re.sub(r'(?im)^\s*<\s*\d+\s*x\s*$', '', text)
 
-    symbols = r'[®™©℠℗]'
-
-    return re.sub(symbols, '', text)
-
-def normalize_newlines(text):
-    return re.sub('\n', " " , text)
-
-def normalize_apostrophes(text):
-
-    for apostrophe in ["’", "‘", "‛", "‚", "´", "`", "′", "ʼ"]:
-        text = text.replace(apostrophe, "'")
+    # removes > or < at the start of a line
+    text = re.sub(r'(?m)^\s*[<>]\s*', '', text)
 
     return text
 
-def normalize_whitespaces(text):
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+def remove_commercial_symbols(text):
+    return re.sub(commercial_symbols_pattern, '', text)
 
 def remove_structural_content(text):
 
-    pattern = re.compile(
+    structural_content = re.compile(
         r'(?:'
         r'[\[(](?:'
         r'intro|'
@@ -309,41 +298,64 @@ def remove_structural_content(text):
         r')',
         flags = re.IGNORECASE)
 
-    return re.sub(pattern, '', text)
+    return re.sub(structural_content, '', text)
 
 def remove_punctuation(text):
-    
-    text = re.sub(r'<[^>]*(?:>|$)', ' ', text)
 
+    # repetitions like 3x, 2x
     text = re.sub(r'\b\d+x\b', ' ', text, flags=re.IGNORECASE)
-    
+
+    # dash-characters
     text = re.sub(r'[-\u2010-\u2015\u2212]+', ' ', text)
 
-    punctuation = r"""[!"$%&()*+,./:;<=>?\[\\\]^_`{|}~\-]"""
-
-    text = re.sub(punctuation, ' ', text)
+    text = re.sub(punctuation_pattern, ' ', text)
 
     return text
 
-def remove_italics(text):
-    return unicodedata.normalize('NFKC', text)
+# FUNCTIONS: NORMALIZE
 
-stop_words = set(stopwords.words('english'))
-stop_words_with_negations = stop_words - {'no', 'nor', 'not'}
+def normalize_newlines(text):
+    return re.sub('\n', " " , text)
 
-def stopword_remover(tokens):
+def normalize_apostrophes(text):
+    for apostrophe in ["’", "‘", "‛", "‚", "´", "`", "′", "ʼ"]:
+        text = text.replace(apostrophe, "'")
+
+    return text
+
+def normalize_whitespaces(text):
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+def normalize_text(text):
+    return unicodedata.normalize('NFKC', text).encode('ascii', 'ignore').decode('utf-8')
+
+def normalize_lyric_expressions(text):
+    
+    text = re.sub(r"\bgon\s+na\b", "gonna", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bwan\s+na\b", "wanna", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bgot\s+ta\b", "gotta", text, flags=re.IGNORECASE)
+
+    return text
+
+# STOPWORD REMOVER
+
+def stopword_remover(tokens, custom = True):
     clean_tokens = []
 
+    if custom:
+        words = custom_stopwords
+    else:
+        words = stop_words
+
     for token in tokens:
-        if token.casefold() not in stop_words:
+        if token.casefold() not in words:
             clean_tokens.append(token)
     return clean_tokens
 
+# TOKENIZER
 def tokenizer(text):
     return word_tokenize(str(text))
-
-lemmatizer = WordNetLemmatizer()
-sentence_tokenizer = PunktSentenceTokenizer()
 
 def get_wordnet_pos(tag):
     if tag.startswith('J'):
@@ -357,66 +369,62 @@ def get_wordnet_pos(tag):
     else:
         return wordnet.NOUN # default is noun
 
-def normalize_lyric_expressions(text):
-    
-    text = re.sub(r"\bgon\s+na\b", "gonna", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bwan\s+na\b", "wanna", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bgot\s+ta\b", "gotta", text, flags=re.IGNORECASE)
-
-    return text
-
+# MAIN PIPELINE FOR CLEANING LYRICS
 def clean_lyrics(text, 
-                keep_hashtags = True, 
-                keep_emojis = True, 
-                keep_structural_content = True, 
-                keep_punctuation = True, 
-                lower_case = False, 
-                lemmatization = False, 
-                remove_stopwords = False, 
-                tokenized_output = False, 
-                sentence_output = True, 
-                keep_negations = False):
+                   keep_hashtags = True,
+                   keep_hashtags_words = True, 
+                   keep_emojis = True, 
+                   keep_structural_content = True, 
+                   keep_punctuation = True, 
+                   lower_case = False, 
+                   lemmatization = False,
+                   stemming = False, 
+                   remove_stopwords = False,
+                   custom_stopwords = True, 
+                   tokenized_output = False, 
+                   sentence_output = False):
 
-    """Clean lyrics and return tokens, a cleaned string, or sentence strings.
+    """Clean lyrics while applying optional removals before Unicode normalization.
 
-    When ``tokenized_output`` is true, it takes precedence over
-    ``sentence_output`` and the result is a list of tokens.
+    Returns tokens when ``tokenized_output`` is true; otherwise returns either
+    sentence strings or one cleaned string, according to ``sentence_output``.
     """
-
     if not isinstance(text, str):
         return [] if tokenized_output else ''
-    
+
     text = text.replace("\u0435", "e")
     text = normalize_apostrophes(text)
     text = normalize_lyric_expressions(text)
     text = remove_commercial_symbols(text)
     text = remove_urls(text)
     text = remove_handles(text)
-    text = remove_htmls(text)
+    text = remove_angle_bracket_markers(text)
     text = normalize_newlines(text)
-    text = remove_italics(text)
 
-    if keep_hashtags == False:
-        text = remove_hashtags(text)
-    if keep_emojis == False:
+    if not keep_hashtags:
+            text = remove_hashtags(text, keep_words = keep_hashtags_words)
+
+    if not keep_emojis:
         text = remove_emojis(text)
-    if keep_structural_content == False:
+
+    if not keep_structural_content:
         text = remove_structural_content(text)
-    if keep_punctuation == False:
-        text = remove_punctuation(text)
+
+    text = normalize_text(text)
+
     if lower_case:
         text = text.lower()
+
+    if not keep_punctuation:
+        text = remove_punctuation(text)
+
     text = normalize_whitespaces(text)
-    text = text.strip()
 
     tokens = tokenizer(text)
-    
     corrected_tokens = []
     i = 0
 
     while i < len(tokens):
-
-        # Join split expressions: wanna, gonna, gotta
         if i + 1 < len(tokens) and (
             tokens[i].casefold(), tokens[i + 1].casefold()
         ) in [
@@ -428,51 +436,40 @@ def clean_lyrics(text,
                 tokens[i].casefold() + tokens[i + 1].casefold()
             )
             i += 2
-
-        # Join contractions such as I'm, you're, don't, and ain't
         elif i + 1 < len(tokens) and tokens[i + 1].lower() in [
             "'m", "'s", "'re", "'ve", "'ll", "'d", "n't"
         ]:
             corrected_tokens.append(tokens[i] + tokens[i + 1])
             i += 2
-
-        # Join words ending in an apostrophe, such as stickin'
-        elif (
-            i + 1 < len(tokens)
-            and tokens[i + 1] in ["'", "’"]
-        ):
+        elif i + 1 < len(tokens) and tokens[i + 1] in ["'", "’"]:
             corrected_tokens.append(tokens[i] + "'")
             i += 2
-
         else:
             corrected_tokens.append(tokens[i])
             i += 1
 
-    tokens = corrected_tokens
     tokens = [
-        token for token in tokens
+        token for token in corrected_tokens
         if token.casefold().strip("'’‘‛‚´`′ʼ") not in {
             's', 't', 'm', 're', 'll', 've', 'd', 'em', 'g'
         }
     ]
 
     if remove_stopwords:
-        if keep_negations:
-            tokens = [
-            token for token in tokens
-            if token.casefold() not in stop_words_with_negations]
-        else:
-            tokens = stopword_remover(tokens)
+        tokens = stopword_remover(tokens, custom = custom_stopwords)
 
     if lemmatization:
         tagged_tokens = pos_tag(tokens)
         tokens = [lemmatizer.lemmatize(token, get_wordnet_pos(tag)) for token, tag in tagged_tokens]
+
+    elif stemming:
+        tokens = [stemmer.stem(token) for token in tokens]
 
     if tokenized_output:
         return tokens
 
     text = " ".join(tokens)
     if sentence_output:
-        text = sentence_tokenizer.tokenize(str(text))
+        text = sentence_tokenizer.tokenize(text)
 
     return text

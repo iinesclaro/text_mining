@@ -1,3 +1,4 @@
 data/train.csv filter=lfs diff=lfs merge=lfs -text
 data/test.csv filter=lfs diff=lfs merge=lfs -text
 train_clean_data.csv filter=lfs diff=lfs merge=lfs -text
+data/train_after_eda.csv filter=lfs diff=lfs merge=lfs -text
