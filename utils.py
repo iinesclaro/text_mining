@@ -2,6 +2,8 @@
 
 import re
 import unicodedata
+import numpy as np
+import itertools
 
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
@@ -10,6 +12,27 @@ from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 from nltk.stem import PorterStemmer
 from nltk.tokenize import PunktSentenceTokenizer
+
+# models
+from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import f1_score
+
+# vectorizers
+
+from sklearn import metrics
+from sklearn.model_selection import StratifiedKFold
+from gensim.models.doc2vec import Doc2Vec, TaggedDocument
+from sklearn.linear_model import LogisticRegression
+from gensim.models.doc2vec import Doc2Vec, TaggedDocument
+from sklearn.model_selection import StratifiedKFold
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from gensim.models import Word2Vec, Doc2Vec
+from gensim.models.doc2vec import TaggedDocument
 
 # INITIALIZATIONS
 
@@ -111,6 +134,37 @@ words_to_keep = (
 )
 
 custom_stopwords = set(stopwords.words('english')) - words_to_keep
+
+# STOPWORD REMOVER
+
+def stopword_remover(tokens, custom = "none"):
+    ''' 
+    takes as input tokens and the custom parameter
+
+    if custom is none no stop words will be removed
+    if custom is standard the standard stop words will be removed
+    if custom is custom the custom stop words defined above will be removed 
+
+    by default custom is equal to none
+    '''
+    clean_tokens = []
+
+
+    if custom  == 'custom':
+        words = custom_stopwords
+    elif custom == 'standard':
+        words = stop_words
+
+    elif custom == 'none':
+        return tokens
+
+    else:
+        return tokens
+
+    for token in tokens:
+        if token.casefold() not in words:
+            clean_tokens.append(token)
+    return clean_tokens
 
 # FUNCTIONS: CONTAINS
 
@@ -338,21 +392,6 @@ def normalize_lyric_expressions(text):
 
     return text
 
-# STOPWORD REMOVER
-
-def stopword_remover(tokens, custom = True):
-    clean_tokens = []
-
-    if custom:
-        words = custom_stopwords
-    else:
-        words = stop_words
-
-    for token in tokens:
-        if token.casefold() not in words:
-            clean_tokens.append(token)
-    return clean_tokens
-
 # TOKENIZER
 def tokenizer(text):
     return word_tokenize(str(text))
@@ -473,3 +512,176 @@ def clean_lyrics(text,
         text = sentence_tokenizer.tokenize(text)
 
     return text
+
+
+# Function to infer vectors for documents
+def infer_vectors(model, docs):
+    vectors = [model.infer_vector(doc.split()) for doc in docs]
+    return vectors
+
+
+
+def tokenize_with_stopwords(sw_mode, X):
+    tokens_list = []
+    for doc in X:
+        if isinstance(doc, str):
+            tokens_list.append(stopword_remover(doc.split(), sw_mode))
+        else:
+            # If it's a NaN/float/etc., append an empty list so it doesn't crash
+            tokens_list.append([])
+
+    return tokens_list
+
+def to_dict_list(tokenized_list):
+    return [{w: doc.count(w) for w in set(doc)} for doc in tokenized_list]
+
+def list_to_raw_text(tokenized_list):
+    return [" ".join(doc) for doc in tokenized_list]
+
+def w2v_output(tokens_list, model):
+    vectors = []
+    for words in tokens_list:
+        word_vecs = [model.wv[w] for w in words if w in model.wv]
+        vectors.append(np.mean(word_vecs, axis=0) if word_vecs else np.zeros(vector_size))
+        return np.array(vectors)
+    
+# Function to apply Feature Extractor
+
+def feature_extractor(vec_name, X_train, X_val, stopwords_mode):
+    
+    
+    tokenized_train = tokenize_with_stopwords(sw_mode=stopwords_mode, X= X_train)
+    tokenized_val = tokenize_with_stopwords(sw_mode=stopwords_mode, X = X_val)
+
+
+    if vec_name == 'DictVectorizer':
+        train_dict =to_dict_list(tokenized_train)
+        val_dict = to_dict_list(tokenized_val)
+
+        dv = DictVectorizer(sparse=True)
+        return dv.fit_transform(train_dict), dv.transform(val_dict)
+    
+    elif vec_name == 'CountVectorizer' or vec_name == 'TfidfVectorizer':
+
+        raw_train = list_to_raw_text(tokenized_train)
+        raw_val = list_to_raw_text(tokenized_val)
+
+        if vec_name == 'CountVectorizer':
+            model = CountVectorizer(max_features=10000, min_df=5)
+        elif vec_name == 'TfidfVectorizer':
+            model = TfidfVectorizer(max_features=10000, min_df=5)
+
+        return model.fit_transform(raw_train), model.transform(raw_val)
+
+    # elif vec_name == 'GloVe':
+    #     dim = 25
+    #     # Build corpus and co-occurrence matrix strictly from training fold tokens
+    #     corpus = Corpus() # Ensure Corpus is imported from your class/package
+    #     corpus.fit(tokenized_train, window=5)
+        
+    #     cooc_matrix = corpus.matrix # or corpus.matrix.to_numpy() depending on your class
+        
+    #     # Train GloVe using your professor's pattern
+    #     glove_model = GloVe(n=dim, max_iter=150, display_progress=0)
+    #     glove_model.fit(cooc_matrix)
+
+
+    elif vec_name == 'Word2Vec':
+        vector_size = 300
+
+        model = Word2Vec(sentences=tokenized_train, vector_size=vector_size, window=5, min_count=1, workers=4)
+
+        return w2v_output(tokenized_train, model), w2v_output(tokenized_val, model)
+
+    elif vec_name == 'Doc2Vec':
+        vector_size = 300
+
+        tagged_tr = [TaggedDocument(words=doc, tags=[str(i)]) for i, doc in enumerate(tokenized_train)]
+        model = Doc2Vec(vector_size=vector_size, window=5, min_count=1, epochs=20, workers=4)
+        model.build_vocab(tagged_tr)
+        model.train(tagged_tr, total_examples=model.corpus_count, epochs=model.epochs)
+        
+        return np.array([model.infer_vector(doc) for doc in tokenized_train]), np.array([model.infer_vector(doc) for doc in tokenized_val])
+
+
+
+def choose_model(model_name):
+    if model_name == 'LogisticRegression':
+        return LogisticRegression(max_iter=2000, random_state=42)
+
+    elif model_name == 'MultinomialNB':
+        return MultinomialNB()
+
+    elif model_name == 'DecisionTree':
+        return DecisionTreeClassifier(random_state=42)
+
+    elif model_name == 'RandomForest':
+        return RandomForestClassifier(random_state=42)
+
+    elif model_name == 'NeuralNetwork':
+        return MLPClassifier(max_iter=500, random_state=42)
+
+def grid_search(vec_options, model_options, sw_options, X_train, y_train, 
+                        n_splits = 5,  minimize=False):
+
+    combinations = list(itertools.product(vec_options, model_options, sw_options))
+
+    global_best_train_fitness = float('inf') if minimize else float('-inf')
+    global_best_val_fitness = float('inf') if minimize else float('-inf')
+    best_combo = None
+
+    print(f'Grid Search starting\n{len(combinations)} combinations being tested')
+    print('-' * 60)
+
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+    for idx, combo in enumerate(combinations):
+
+        vec_name, model_name, sw_option = combo
+
+        if model_name == 'MultinomialNB' and vec_name  in ['Word2Vec', 'Doc2Vec']:
+            # skip these combinations since MultinomialNB doesn't work with negative values
+            continue
+
+        print(f'Combination {idx}/{len(combinations)}')
+
+        combo_train_fit = []
+        combo_val_fit = []
+
+        for train_index, val_index in cv.split(X_train, y_train):
+            
+            X_tr, X_va = X_train.iloc[train_index], X_train.iloc[val_index]
+            y_tr, y_va = y_train.iloc[train_index], y_train.iloc[val_index]
+
+            Xtrain_ft, Xval_ft = feature_extractor(vec_name, X_tr, X_va, sw_option)
+
+            base_model = choose_model(model_name)
+
+            base_model.fit(Xtrain_ft, y_tr)
+
+            train_predictions = base_model.predict(Xtrain_ft)
+            val_predictions = base_model.predict(Xval_ft)
+
+            train_score = f1_score(y_tr, train_predictions, average='weighted', zero_division=0)
+            val_score = f1_score(y_va, val_predictions, average='weighted', zero_division=0)
+
+            combo_train_fit.append(train_score)
+            combo_val_fit.append(val_score)
+
+        avg_train_fitness = np.mean(combo_train_fit)
+        avg_val_fitness = np.mean(combo_val_fit)
+
+        is_better = (avg_val_fitness < global_best_val_fitness) if minimize else (avg_val_fitness > global_best_val_fitness)
+        if is_better:
+            global_best_val_fitness = avg_val_fitness
+            global_best_train_fitness = avg_train_fitness
+            best_combo = combo
+
+    return best_combo, global_best_train_fitness, global_best_val_fitness
+
+
+
+
+
+
+

@@ -1,6 +1,12 @@
+# python version: 3.13.5
+
 pandas
 numpy
 matplotlib
 seaborn
 nltk
 wordcloud
+scikit-learn
+gensim
+scipy
+mittens
