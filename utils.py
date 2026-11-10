@@ -12,6 +12,7 @@ from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 from nltk.stem import PorterStemmer
 from nltk.tokenize import PunktSentenceTokenizer
+from joblib import Parallel, delayed
 
 # models
 from sklearn.linear_model import LogisticRegression
@@ -34,6 +35,7 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from gensim.models import Word2Vec, Doc2Vec
 from gensim.models.doc2vec import TaggedDocument
 
+from Logger import CheckTimer
 # INITIALIZATIONS
 
 sentence_tokenizer = PunktSentenceTokenizer()
@@ -516,10 +518,11 @@ def clean_lyrics(text,
 
 # Function to infer vectors for documents
 def infer_vectors(model, docs):
-    vectors = [model.infer_vector(doc.split()) for doc in docs]
+    vectors = [model.infer_vector(doc) for doc in docs]
     return vectors
 
 
+# -------------------------------------------------------------------------
 
 def tokenize_with_stopwords(sw_mode, X):
     tokens_list = []
@@ -538,20 +541,16 @@ def to_dict_list(tokenized_list):
 def list_to_raw_text(tokenized_list):
     return [" ".join(doc) for doc in tokenized_list]
 
-def w2v_output(tokens_list, model):
+def w2v_output(tokens_list, model, vector_size):
     vectors = []
     for words in tokens_list:
         word_vecs = [model.wv[w] for w in words if w in model.wv]
         vectors.append(np.mean(word_vecs, axis=0) if word_vecs else np.zeros(vector_size))
-        return np.array(vectors)
+    return np.array(vectors)
     
 # Function to apply Feature Extractor
 
-def feature_extractor(vec_name, X_train, X_val, stopwords_mode):
-    
-    
-    tokenized_train = tokenize_with_stopwords(sw_mode=stopwords_mode, X= X_train)
-    tokenized_val = tokenize_with_stopwords(sw_mode=stopwords_mode, X = X_val)
+def feature_extractor(vec_name, tokenized_train, tokenized_val, pretrained_model=None):
 
 
     if vec_name == 'DictVectorizer':
@@ -573,31 +572,18 @@ def feature_extractor(vec_name, X_train, X_val, stopwords_mode):
 
         return model.fit_transform(raw_train), model.transform(raw_val)
 
-    # elif vec_name == 'GloVe':
-    #     dim = 25
-    #     # Build corpus and co-occurrence matrix strictly from training fold tokens
-    #     corpus = Corpus() # Ensure Corpus is imported from your class/package
-    #     corpus.fit(tokenized_train, window=5)
-        
-    #     cooc_matrix = corpus.matrix # or corpus.matrix.to_numpy() depending on your class
-        
-    #     # Train GloVe using your professor's pattern
-    #     glove_model = GloVe(n=dim, max_iter=150, display_progress=0)
-    #     glove_model.fit(cooc_matrix)
-
-
     elif vec_name == 'Word2Vec':
         vector_size = 300
 
         model = Word2Vec(sentences=tokenized_train, vector_size=vector_size, window=5, min_count=1, workers=4)
 
-        return w2v_output(tokenized_train, model), w2v_output(tokenized_val, model)
+        return w2v_output(tokenized_train, model, vector_size), w2v_output(tokenized_val, model, vector_size)
 
     elif vec_name == 'Doc2Vec':
         vector_size = 300
 
         tagged_tr = [TaggedDocument(words=doc, tags=[str(i)]) for i, doc in enumerate(tokenized_train)]
-        model = Doc2Vec(vector_size=vector_size, window=5, min_count=1, epochs=20, workers=4)
+        model = Doc2Vec(vector_size=vector_size, window=5, min_count=1, epochs=5, workers=4)
         model.build_vocab(tagged_tr)
         model.train(tagged_tr, total_examples=model.corpus_count, epochs=model.epochs)
         
@@ -609,21 +595,16 @@ def choose_model(model_name):
     if model_name == 'LogisticRegression':
         return LogisticRegression(max_iter=2000, random_state=42)
 
-    elif model_name == 'MultinomialNB':
-        return MultinomialNB()
-
-    elif model_name == 'DecisionTree':
-        return DecisionTreeClassifier(random_state=42)
-
     elif model_name == 'RandomForest':
         return RandomForestClassifier(random_state=42)
 
     elif model_name == 'NeuralNetwork':
-        return MLPClassifier(max_iter=500, random_state=42)
+        return MLPClassifier(max_iter=500, random_state=42, early_stopping=True)
+
 
 def grid_search(vec_options, model_options, sw_options, X_train, y_train, 
                         n_splits = 5,  minimize=False):
-
+    
     combinations = list(itertools.product(vec_options, model_options, sw_options))
 
     global_best_train_fitness = float('inf') if minimize else float('-inf')
@@ -633,30 +614,34 @@ def grid_search(vec_options, model_options, sw_options, X_train, y_train,
     print(f'Grid Search starting\n{len(combinations)} combinations being tested')
     print('-' * 60)
 
+    print("Pre-tokenizing data for each stopwords mode...")
+    pretokenized_dict = {}
+
+    for sw_option in sw_options:
+        pretokenized_dict[sw_option] = tokenize_with_stopwords(sw_mode=sw_option, X=X_train)
+
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
 
-    for idx, combo in enumerate(combinations):
-
+    for idx,combo in enumerate(combinations):
+        
         vec_name, model_name, sw_option = combo
-
-        if model_name == 'MultinomialNB' and vec_name  in ['Word2Vec', 'Doc2Vec']:
-            # skip these combinations since MultinomialNB doesn't work with negative values
-            continue
-
-        print(f'Combination {idx}/{len(combinations)}')
-
+        print(f'Testing combo # {idx+1}')
+    
+        tokenized_data = pretokenized_dict[sw_option]
         combo_train_fit = []
         combo_val_fit = []
 
         for train_index, val_index in cv.split(X_train, y_train):
-            
-            X_tr, X_va = X_train.iloc[train_index], X_train.iloc[val_index]
-            y_tr, y_va = y_train.iloc[train_index], y_train.iloc[val_index]
+            tokenized_tr = [tokenized_data[i] for i in train_index]
+            tokenized_va = [tokenized_data[i] for i in val_index]
+        
+            y_tr = y_train.iloc[train_index]
+            y_va = y_train.iloc[val_index]
 
-            Xtrain_ft, Xval_ft = feature_extractor(vec_name, X_tr, X_va, sw_option)
+            # Extract features (Word2Vec/Doc2Vec train strictly on tokenized_tr per fold)
+            Xtrain_ft, Xval_ft = feature_extractor(vec_name, tokenized_tr, tokenized_va, sw_option)
 
             base_model = choose_model(model_name)
-
             base_model.fit(Xtrain_ft, y_tr)
 
             train_predictions = base_model.predict(Xtrain_ft)
@@ -668,16 +653,28 @@ def grid_search(vec_options, model_options, sw_options, X_train, y_train,
             combo_train_fit.append(train_score)
             combo_val_fit.append(val_score)
 
-        avg_train_fitness = np.mean(combo_train_fit)
-        avg_val_fitness = np.mean(combo_val_fit)
+    avg_train_fitness = np.mean(combo_train_fit)
+    avg_val_fitness = np.mean(combo_val_fit)
 
-        is_better = (avg_val_fitness < global_best_val_fitness) if minimize else (avg_val_fitness > global_best_val_fitness)
-        if is_better:
-            global_best_val_fitness = avg_val_fitness
-            global_best_train_fitness = avg_train_fitness
-            best_combo = combo
+    is_better = (avg_val_fitness < global_best_val_fitness) if minimize else (avg_val_fitness > global_best_val_fitness)
+    if is_better:
+        global_best_val_fitness = avg_val_fitness
+        global_best_train_fitness = avg_train_fitness
+        best_combo = combo
 
+    print(f'\nBest combo: {best_combo}\nTrain fitness: {global_best_train_fitness}\nValidation fitness: {global_best_val_fitness}')
     return best_combo, global_best_train_fitness, global_best_val_fitness
+
+
+def fold_score_calculator(y_pred, y_test):
+    
+    # Compute classification scores (accuracy, precision, recall, F1, AUC) for the fold.
+    acc = metrics.accuracy_score(y_test, y_pred)
+    prec = metrics.precision_score(y_test, y_pred, average='weighted')
+    recall = metrics.recall_score(y_test, y_pred, average='weighted')
+    f1 = metrics.f1_score(y_test, y_pred, average='weighted')
+
+    return (acc, prec, recall, f1)
 
 
 
