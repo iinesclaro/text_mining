@@ -602,69 +602,103 @@ def choose_model(model_name):
         return MLPClassifier(max_iter=500, random_state=42, early_stopping=True)
 
 
-def grid_search(vec_options, model_options, sw_options, X_train, y_train, 
-                        n_splits = 5,  minimize=False):
-    
-    combinations = list(itertools.product(vec_options, model_options, sw_options))
+def grid_search(vec_options, model_options, sw_options, X_train, y_train,
+                n_splits=3, minimize=False):
 
     global_best_train_fitness = float('inf') if minimize else float('-inf')
     global_best_val_fitness = float('inf') if minimize else float('-inf')
     best_combo = None
 
-    print(f'Grid Search starting\n{len(combinations)} combinations being tested')
-    print('-' * 60)
+    # Pre-tokenize data for each stopword configuration
+    pretokenized_dict = {
+        sw: tokenize_with_stopwords(sw_mode=sw, X=X_train)
+        for sw in sw_options
+    }
 
-    print("Pre-tokenizing data for each stopwords mode...")
-    pretokenized_dict = {}
+    cv = StratifiedKFold(
+        n_splits=n_splits,
+        shuffle=True,
+        random_state=42
+    )
 
-    for sw_option in sw_options:
-        pretokenized_dict[sw_option] = tokenize_with_stopwords(sw_mode=sw_option, X=X_train)
+    splits = list(cv.split(X_train, y_train))
 
-    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    total = len(vec_options) * len(sw_options) * len(model_options)
+    counter = 0
 
-    for idx,combo in enumerate(combinations):
-        
-        vec_name, model_name, sw_option = combo
-        print(f'Testing combo # {idx+1}')
-    
-        tokenized_data = pretokenized_dict[sw_option]
-        combo_train_fit = []
-        combo_val_fit = []
+    for vec_name in vec_options:
 
-        for train_index, val_index in cv.split(X_train, y_train):
-            tokenized_tr = [tokenized_data[i] for i in train_index]
-            tokenized_va = [tokenized_data[i] for i in val_index]
-        
-            y_tr = y_train.iloc[train_index]
-            y_va = y_train.iloc[val_index]
+        for sw_option in sw_options:
 
-            # Extract features (Word2Vec/Doc2Vec train strictly on tokenized_tr per fold)
-            Xtrain_ft, Xval_ft = feature_extractor(vec_name, tokenized_tr, tokenized_va, sw_option)
+            print(f'\nVectorizer: {vec_name} | Stopwords: {sw_option}')
 
-            base_model = choose_model(model_name)
-            base_model.fit(Xtrain_ft, y_tr)
+            tokenized_data = pretokenized_dict[sw_option]
 
-            train_predictions = base_model.predict(Xtrain_ft)
-            val_predictions = base_model.predict(Xval_ft)
+            # Store scores for each classification model
+            scores = {
+                model: {'train': [], 'val': []}
+                for model in model_options
+            }
 
-            train_score = f1_score(y_tr, train_predictions, average='weighted', zero_division=0)
-            val_score = f1_score(y_va, val_predictions, average='weighted', zero_division=0)
+            for train_index, val_index in splits:
 
-            combo_train_fit.append(train_score)
-            combo_val_fit.append(val_score)
+                tokenized_tr = [tokenized_data[i] for i in train_index]
+                tokenized_va = [tokenized_data[i] for i in val_index]
 
-    avg_train_fitness = np.mean(combo_train_fit)
-    avg_val_fitness = np.mean(combo_val_fit)
+                y_tr = y_train.iloc[train_index]
+                y_va = y_train.iloc[val_index]
 
-    is_better = (avg_val_fitness < global_best_val_fitness) if minimize else (avg_val_fitness > global_best_val_fitness)
-    if is_better:
-        global_best_val_fitness = avg_val_fitness
-        global_best_train_fitness = avg_train_fitness
-        best_combo = combo
+                # Feature extraction only once per fold
+                Xtrain_ft, Xval_ft = feature_extractor(
+                    vec_name, tokenized_tr, tokenized_va
+                )
 
-    print(f'\nBest combo: {best_combo}\nTrain fitness: {global_best_train_fitness}\nValidation fitness: {global_best_val_fitness}')
+                # Test all classification models
+                for model_name in model_options:
+
+                    base_model = choose_model(model_name)
+                    base_model.fit(Xtrain_ft, y_tr)
+
+                    train_pred = base_model.predict(Xtrain_ft)
+                    val_pred = base_model.predict(Xval_ft)
+
+                    scores[model_name]['train'].append(
+                        f1_score(y_tr, train_pred,
+                                 average='macro', zero_division=0)
+                    )
+
+                    scores[model_name]['val'].append(
+                        f1_score(y_va, val_pred,
+                                 average='macro', zero_division=0)
+                    )
+
+            # Compare average CV scores for each model
+            for model_name in model_options:
+
+                avg_train = np.mean(scores[model_name]['train'])
+                avg_val = np.mean(scores[model_name]['val'])
+
+                counter += 1
+
+                print(f'{counter}/{total} - {model_name}: '
+                      f'Train={avg_train:.4f}, Val={avg_val:.4f}')
+
+                is_better = (
+                    avg_val < global_best_val_fitness
+                    if minimize
+                    else avg_val > global_best_val_fitness
+                )
+
+                if is_better:
+                    global_best_val_fitness = avg_val
+                    global_best_train_fitness = avg_train
+                    best_combo = (vec_name, model_name, sw_option)
+
+    print(f'\nBest combo: {best_combo}')
+    print(f'Train fitness: {global_best_train_fitness}')
+    print(f'Validation fitness: {global_best_val_fitness}')
+
     return best_combo, global_best_train_fitness, global_best_val_fitness
-
 
 def fold_score_calculator(y_pred, y_test):
     
@@ -672,11 +706,9 @@ def fold_score_calculator(y_pred, y_test):
     acc = metrics.accuracy_score(y_test, y_pred)
     prec = metrics.precision_score(y_test, y_pred, average='weighted')
     recall = metrics.recall_score(y_test, y_pred, average='weighted')
-    f1 = metrics.f1_score(y_test, y_pred, average='weighted')
+    f1 = metrics.f1_score(y_test, y_pred, average='macro')
 
     return (acc, prec, recall, f1)
-
-
 
 
 
