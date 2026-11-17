@@ -34,8 +34,6 @@ from sklearn.feature_extraction import DictVectorizer
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from gensim.models import Word2Vec, Doc2Vec
 from gensim.models.doc2vec import TaggedDocument
-
-from Logger import CheckTimer
 # INITIALIZATIONS
 
 sentence_tokenizer = PunktSentenceTokenizer()
